@@ -1,0 +1,10 @@
+# You may repeat media_dir for every directory to watch.
+media_dir=/mnt/sdb1/Share/Movies
+media_dir=/mnt/sdc1/Share/Movies
+
+# Audio encoder passed to FFmpeg (for example: aac, opus, ac3).
+codec=aac
+
+# Seconds between directory scans. A new file must remain the same size for
+# one full poll interval before it is processed.
+poll_seconds=30
