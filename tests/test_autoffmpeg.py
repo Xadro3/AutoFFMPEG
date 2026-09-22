@@ -40,6 +40,7 @@ class ConfigTests(unittest.TestCase):
 
             command = run_mock.call_args.args[0]
             self.assertEqual(command[3:6], ["-fflags", "+genpts", "-i"])
+            self.assertIn("pan=stereo|c0=FR|c1=FR", command)
             self.assertTrue(destination.exists())
             self.assertFalse(source.exists())
 

@@ -92,7 +92,7 @@ def transcode(source: Path, destination: Path, codec: str, ffmpeg: str) -> None:
     temporary = temporary_output_path(destination)
     command = [
         ffmpeg, "-nostdin", "-y", "-fflags", "+genpts", "-i", str(source), "-map", "0",
-        "-c", "copy", "-c:a", codec, str(temporary),
+        "-c", "copy", "-af", "pan=stereo|c0=FR|c1=FR", "-c:a", codec, str(temporary),
     ]
     try:
         subprocess.run(command, check=True)
