@@ -25,7 +25,7 @@ class ConfigTests(unittest.TestCase):
         destination = Path("/mnt/a/movie.aac.mkv")
         self.assertEqual(temporary_output_path(destination).name, "movie.aac.part.mkv")
 
-    def test_transcode_regenerates_presentation_timestamps(self):
+    def test_transcode_regenerates_timestamps_without_remapping_audio_channels(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "movie.mkv"
             destination = Path(directory) / "movie.aac.mkv"
@@ -40,7 +40,9 @@ class ConfigTests(unittest.TestCase):
 
             command = run_mock.call_args.args[0]
             self.assertEqual(command[3:6], ["-fflags", "+genpts", "-i"])
-            self.assertIn("pan=stereo|c0=FR|c1=FR", command)
+            self.assertNotIn("-af", command)
+            self.assertNotIn("pan=stereo|c0=FR|c1=FR", command)
+            self.assertEqual(command[command.index("-c:a") + 1], "aac")
             self.assertTrue(destination.exists())
             self.assertFalse(source.exists())
 

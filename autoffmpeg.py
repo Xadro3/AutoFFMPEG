@@ -92,7 +92,10 @@ def transcode(source: Path, destination: Path, codec: str, ffmpeg: str) -> None:
     temporary = temporary_output_path(destination)
     command = [
         ffmpeg, "-nostdin", "-y", "-fflags", "+genpts", "-i", str(source), "-map", "0",
-        "-c", "copy", "-af", "pan=stereo|c0=FR|c1=FR", "-c:a", codec, str(temporary),
+        # Do not force a pan filter here.  In particular, mapping both output
+        # channels from FR loses the left and centre channels (often dialogue).
+        # FFmpeg will preserve each stream's channel layout while re-encoding it.
+        "-c", "copy", "-c:a", codec, str(temporary),
     ]
     try:
         subprocess.run(command, check=True)
