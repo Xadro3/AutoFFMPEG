@@ -1,13 +1,16 @@
 # AutoFFMPEG
 
 `autoffmpeg.py` polls one or more media directories. When it finds a stable
-video whose audio streams are not already in the configured codec, it copies
-the video/other streams and re-encodes all audio streams with FFmpeg.
+video whose audio streams do not already match the configured codec and channel
+count, it copies the video/other streams and re-encodes all audio streams with
+FFmpeg. The example configuration targets stereo AAC for broad DLNA compatibility.
 
 The output is placed beside the source as `movie.aac.mkv` (with a number added
 if necessary). The original is deleted **only after** FFmpeg succeeds and the
 output is moved into place. Videos with all audio streams already using the
-configured codec are skipped.
+configured codec and channel count are skipped. FFmpeg's standard layout-aware
+downmix is used, so a 5.1 centre channel (normally dialogue) contributes to the
+stereo output.
 
 ## Setup
 

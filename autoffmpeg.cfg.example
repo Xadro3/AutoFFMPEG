@@ -5,6 +5,9 @@ media_dir=/mnt/sdc1/Share/Movies
 # Audio encoder passed to FFmpeg (for example: aac, opus, ac3).
 codec=aac
 
+# Number of channels in every output audio stream. Stereo is broadly DLNA-compatible.
+audio_channels=2
+
 # Seconds between directory scans. A new file must remain the same size for
 # one full poll interval before it is processed.
 poll_seconds=30

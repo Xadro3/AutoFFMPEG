@@ -8,6 +8,7 @@ available on PATH (or supplied using the command-line options).
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import subprocess
@@ -26,6 +27,7 @@ VIDEO_EXTENSIONS = {
 class Settings:
     media_dirs: tuple[Path, ...]
     codec: str
+    audio_channels: int
     poll_seconds: int = 30
 
 
@@ -33,6 +35,7 @@ def load_config(path: Path) -> Settings:
     """Read a deliberately small cfg format which permits repeated keys."""
     directories: list[Path] = []
     codec: str | None = None
+    audio_channels: int | None = None
     poll_seconds = 30
 
     for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -48,6 +51,8 @@ def load_config(path: Path) -> Settings:
             directories.append(Path(value).expanduser())
         elif key == "codec":
             codec = value.lower()
+        elif key == "audio_channels":
+            audio_channels = int(value)
         elif key == "poll_seconds":
             poll_seconds = int(value)
         else:
@@ -57,18 +62,35 @@ def load_config(path: Path) -> Settings:
         raise ValueError("configuration needs at least one media_dir")
     if not codec:
         raise ValueError("configuration needs codec=...")
+    if audio_channels is None:
+        raise ValueError("configuration needs audio_channels=...")
+    if audio_channels < 1:
+        raise ValueError("audio_channels must be at least 1")
     if poll_seconds < 1:
         raise ValueError("poll_seconds must be at least 1")
-    return Settings(tuple(directories), codec, poll_seconds)
+    return Settings(tuple(directories), codec, audio_channels, poll_seconds)
 
 
-def audio_codecs(path: Path, ffprobe: str) -> list[str]:
+def audio_streams(path: Path, ffprobe: str) -> list[tuple[str, int]]:
     command = [
         ffprobe, "-v", "error", "-select_streams", "a", "-show_entries",
-        "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+        "stream=codec_name,channels", "-of", "json", str(path),
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=True)
-    return [line.strip().lower() for line in completed.stdout.splitlines() if line.strip()]
+    streams = json.loads(completed.stdout).get("streams", [])
+    return [
+        (stream["codec_name"].lower(), int(stream["channels"]))
+        for stream in streams
+        if stream.get("codec_name") and stream.get("channels") is not None
+    ]
+
+
+def audio_matches_target(streams: list[tuple[str, int]], codec: str, channels: int) -> bool:
+    """Return whether every audio stream already has the requested format."""
+    return bool(streams) and all(
+        stream_codec == codec and stream_channels == channels
+        for stream_codec, stream_channels in streams
+    )
 
 
 def output_path(source: Path, codec: str) -> Path:
@@ -86,16 +108,15 @@ def temporary_output_path(destination: Path) -> Path:
     return destination.with_name(f"{destination.stem}.part{destination.suffix}")
 
 
-def transcode(source: Path, destination: Path, codec: str, ffmpeg: str) -> None:
+def transcode(source: Path, destination: Path, codec: str, audio_channels: int, ffmpeg: str) -> None:
     # Keep the container extension last so FFmpeg can infer the output format.
     # For example, ``movie.aac.mkv`` is written as ``movie.aac.part.mkv``.
     temporary = temporary_output_path(destination)
     command = [
         ffmpeg, "-nostdin", "-y", "-fflags", "+genpts", "-i", str(source), "-map", "0",
-        # Do not force a pan filter here.  In particular, mapping both output
-        # channels from FR loses the left and centre channels (often dialogue).
-        # FFmpeg will preserve each stream's channel layout while re-encoding it.
-        "-c", "copy", "-c:a", codec, str(temporary),
+        # Let FFmpeg perform its standard layout-aware downmix. Unlike a manual
+        # pan that selects only FL/FR, this includes the centre dialogue channel.
+        "-c", "copy", "-c:a", codec, "-ac:a", str(audio_channels), str(temporary),
     ]
     try:
         subprocess.run(command, check=True)
@@ -132,11 +153,12 @@ def run(settings: Settings, ffmpeg: str, ffprobe: str, once: bool) -> None:
     previous_sizes: dict[Path, int] = {}
     mode = "a single scan" if once else f"continuous scans every {settings.poll_seconds} seconds"
     logging.info(
-        "Starting watcher for %d media director%s (%s; target audio codec: %s)",
+        "Starting watcher for %d media director%s (%s; target audio: %s, %d channels)",
         len(settings.media_dirs),
         "y" if len(settings.media_dirs) == 1 else "ies",
         mode,
         settings.codec,
+        settings.audio_channels,
     )
     for directory in settings.media_dirs:
         logging.info("Watching: %s", directory)
@@ -154,13 +176,13 @@ def run(settings: Settings, ffmpeg: str, ffprobe: str, once: bool) -> None:
                 continue
             try:
                 logging.debug("Probing audio streams: %s", source)
-                codecs = audio_codecs(source, ffprobe)
-                if codecs and all(found_codec == settings.codec for found_codec in codecs):
-                    logging.info("Already %s; skipping %s", settings.codec, source)
+                streams = audio_streams(source, ffprobe)
+                if audio_matches_target(streams, settings.codec, settings.audio_channels):
+                    logging.info("Already %s with %d channels; skipping %s", settings.codec, settings.audio_channels, source)
                     continue
                 destination = output_path(source, settings.codec)
                 logging.info("Converting %s -> %s", source, destination)
-                transcode(source, destination, settings.codec, ffmpeg)
+                transcode(source, destination, settings.codec, settings.audio_channels, ffmpeg)
                 previous_sizes.pop(source, None)
                 logging.info("Finished; removed original %s", source)
             except subprocess.CalledProcessError as error:

@@ -3,17 +3,36 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from autoffmpeg import load_config, output_path, temporary_output_path, transcode
+from autoffmpeg import (
+    audio_matches_target,
+    audio_streams,
+    load_config,
+    output_path,
+    temporary_output_path,
+    transcode,
+)
 
 
 class ConfigTests(unittest.TestCase):
     def test_repeated_media_directories_are_allowed(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "watch.cfg"
-            config.write_text("media_dir=/mnt/a\nmedia_dir=/mnt/b\ncodec=AAC\n", encoding="utf-8")
+            config.write_text("media_dir=/mnt/a\nmedia_dir=/mnt/b\ncodec=AAC\naudio_channels=2\n", encoding="utf-8")
             settings = load_config(config)
         self.assertEqual(settings.media_dirs, (Path("/mnt/a"), Path("/mnt/b")))
         self.assertEqual(settings.codec, "aac")
+        self.assertEqual(settings.audio_channels, 2)
+
+    @mock.patch("autoffmpeg.subprocess.run")
+    def test_audio_streams_reports_codec_and_channel_count(self, run_mock):
+        run_mock.return_value.stdout = '{"streams":[{"codec_name":"aac","channels":6}]}'
+        self.assertEqual(audio_streams(Path("movie.mkv"), "ffprobe"), [("aac", 6)])
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[command.index("-show_entries") + 1], "stream=codec_name,channels")
+
+    def test_aac_surround_audio_does_not_match_stereo_aac_target(self):
+        self.assertFalse(audio_matches_target([("aac", 6)], "aac", 2))
+        self.assertTrue(audio_matches_target([("aac", 2)], "aac", 2))
 
     def test_destination_never_overwrites_source(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -36,13 +55,14 @@ class ConfigTests(unittest.TestCase):
                 temporary.touch()
 
             with mock.patch("autoffmpeg.subprocess.run", side_effect=fake_run) as run_mock:
-                transcode(source, destination, "aac", "ffmpeg")
+                transcode(source, destination, "aac", 2, "ffmpeg")
 
             command = run_mock.call_args.args[0]
             self.assertEqual(command[3:6], ["-fflags", "+genpts", "-i"])
             self.assertNotIn("-af", command)
             self.assertNotIn("pan=stereo|c0=FR|c1=FR", command)
             self.assertEqual(command[command.index("-c:a") + 1], "aac")
+            self.assertEqual(command[command.index("-ac:a") + 1], "2")
             self.assertTrue(destination.exists())
             self.assertFalse(source.exists())
 
