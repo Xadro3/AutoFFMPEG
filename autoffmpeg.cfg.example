@@ -2,6 +2,7 @@
 media_dir=/mnt/sdb1/Share/Movies
 media_dir=/mnt/sdc1/Share/Movies
 
+# This is an audio-only target; video and subtitle streams are copied unchanged.
 # Audio encoder passed to FFmpeg (for example: aac, opus, ac3).
 codec=aac
 
